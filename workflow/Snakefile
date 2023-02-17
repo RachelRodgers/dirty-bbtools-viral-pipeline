@@ -1,0 +1,267 @@
+import os
+import sys
+
+configfile: "./config/bbtools_pipeline_config.yml"
+
+# Tools
+BBTOOLS = config["Tools"]["BBTools"]
+
+# Databases
+CONPATH = config["Paths"]["Contaminants"]
+HOSTPATH = config["Paths"]["Host"]
+
+# Data paths
+READDIR = config["Paths"]["Reads"]
+
+# Java memory
+XMX = config["System"]["Memory"]
+
+#----- Collect the Input Files -----#
+SAMPLES, = glob_wildcards(os.path.join(READDIR, "{sample}_R1_001.fastq.gz"))
+
+PATTERN_R1 = "{sample}_R1"
+PATTERN_R2 = "{sample}_R2"
+
+#----- Rules -----#
+rule all:
+	input:
+		expand(os.path.join("results", "Assemblies", "{sample}", "log"), sample = SAMPLES)
+		
+#----- Rules -----#
+
+rule adapter_removal:
+	"""
+	Adapter removal and QC filter
+	"""
+	input:
+		r1 = os.path.join(READDIR, "{sample}_R1_001.fastq.gz"),
+		r2 = os.path.join(READDIR, "{sample}_R2_001.fastq.gz"),
+		adapters = os.path.join(CONPATH, "nebnext.fa")
+	output:
+		r1 = os.path.join("results", "QC", "{sample}_adapterTrim_R1.fastq"),
+		r2 = os.path.join("results", "QC", "{sample}_adapterTrim_R2.fastq"),
+		singletons = os.path.join("results", "QC", "{sample}_adapterTrim_singletons.fastq")
+	threads: 16
+	shell:
+		"""
+		bash {BBTOOLS}bbduk.sh \
+			in={input.r1} \
+			in2={input.r2} \
+			ref={input.adapters} \
+			out={output.r1} \
+			out2={output.r2} \
+			outs={output.singletons} \
+			k=25 \
+			hammingdistance=1 \
+			ktrim=r \
+			qtrim=r \
+			mink=11 \
+			trimq=25 \
+			minlength=75 \
+			minavgquality=20 \
+			removeifeitherbad=f \
+			outputtrimmedtomatch=t \
+			trimpairsevenly=t \
+			overwrite=t \
+			t={threads}
+		"""
+
+rule primerB_removal:
+	"""
+	Primer B removal
+	"""
+	input:
+		r1 = os.path.join("results", "QC", "{sample}_adapterTrim_R1.fastq"),
+		r2 = os.path.join("results", "QC",  "{sample}_adapterTrim_R2.fastq"),
+		primerB = os.path.join(CONPATH, "primerb.fa.gz")
+	output:
+		r1 = os.path.join("results", "QC", "{sample}_primerBTrim_R1.fastq"),
+		r2 = os.path.join("results", "QC",  "{sample}_primerBTrim_R2.fastq"),
+		singletons = os.path.join("results", "QC", "{sample}_primerBTrim_singletons.fastq")
+	threads: 16
+	shell:
+		"""
+		bash {BBTOOLS}bbduk.sh \
+			in={input.r1} \
+			in2={input.r2} \
+			ref={input.primerB} \
+			out={output.r1} \
+			out2={output.r2} \
+			outs={output.singletons} \
+			k=16 \
+			hammingdistance=1 \
+			ktrim=l \
+			restrictleft=50 \
+			mink=11 \
+			minlength=75 \
+			removeifeitherbad=f \
+			overwrite=t \
+			t={threads}
+		"""
+
+rule phiX_removal:
+	"""
+	PhiX Removal
+	"""
+	input:
+		r1 = os.path.join("results", "QC", "{sample}_primerBTrim_R1.fastq"),
+		r2 = os.path.join("results", "QC", "{sample}_primerBTrim_R2.fastq"),
+		phix = os.path.join(CONPATH, "phix174_ill.ref.fa.gz")
+	output:
+		r1 = os.path.join("results", "QC", "{sample}_phiXTrim_R1.fastq"),
+		r2 = os.path.join("results", "QC", "{sample}_phiXTrim_R2.fastq"),
+		singletons = os.path.join("results", "QC", "{sample}_phiXTrim_singletons.fastq")
+	threads: 16
+	shell:
+		"""
+		bash {BBTOOLS}bbduk.sh \
+			in={input.r1} \
+			in2={input.r2} \
+			ref={input.phix} \
+			out={output.r1} \
+			out2={output.r2} \
+			outs={output.singletons} \
+			k=31 \
+			hammingdistance=1 \
+			overwrite=t
+		"""
+
+rule host_removal:
+	"""
+	Host contaminant removal
+	"""
+	input:
+		r1 = os.path.join("results", "QC", "{sample}_phiXTrim_R1.fastq"),
+		r2 = os.path.join("results", "QC", "{sample}_phiXTrim_R2.fastq"),
+		host = HOSTPATH
+	output:
+		unmapped = os.path.join("results", "QC", "{sample}_hostRemoved.fastq"),
+		mapped = os.path.join("results", "QC", "{sample}_hostMatched.fastq")
+	threads: 16
+	shell:
+		"""
+		bash {BBTOOLS}bbmap.sh \
+			in={input.r1} \
+			in2={input.r2} \
+			path={input.host} \
+			outu={output.unmapped} \
+			outm={output.mapped} \
+			minid=0.95 \
+			maxindel=3 \
+			bandwidthratio=0.16 \
+			bandwidth=12 \
+			quickmatch \
+			fast \
+			minhits=2 \
+			{XMX} \
+			t={threads}
+		"""
+
+rule deduplication:
+	"""
+	De-duplication of QC'd reads
+	"""
+	input:
+		unmapped = os.path.join("results", "QC", "{sample}_hostRemoved.fastq")
+	output:
+		deduplicated = os.path.join("results", "Deduplicated", "{sample}_deduplicated.fastq"),
+		duplicates = os.path.join("results", "Deduplicated", "{sample}_duplicates.fastq")
+	threads: 16
+	shell:
+		"""
+		bash {BBTOOLS}dedupe.sh \
+			in={input.unmapped} \
+			out={output.deduplicated} \
+			outd={output.duplicates} \
+			overwrite=t \
+			absorbcontainment=f \
+			minidentity=95 \
+			t={threads}
+		"""
+
+rule set_minlength:
+	"""
+	Set minlength threshold for deduplicated reads
+	"""
+	input:
+		os.path.join("results", "Deduplicated", "{sample}_deduplicated.fastq")
+	output:
+		os.path.join("results", "Deduplicated", "{sample}_deduplicated_filtered.fastq")
+	threads: 16
+	shell:
+		"""
+		bash {BBTOOLS}bbduk.sh \
+			in={input} \
+			out={output} \
+			minlength=75 \
+			overwrite=t \
+			t={threads}
+		"""
+
+rule repair:
+	"""
+	Repair the interleaved output in the deduplicated_filtered.fastq file
+	into paired R1, R2, and singleton file
+	"""
+	input:
+		os.path.join("results", "Deduplicated", "{sample}_deduplicated_filtered.fastq")
+	output:
+		r1 = os.path.join("results", "Repaired", "{sample}_repaired_R1.fastq"),
+		r2 = os.path.join("results", "Repaired", "{sample}_repaired_R2.fastq"),
+		singletons = os.path.join("results", "Repaired", "{sample}_repaired_singletons.fastq")
+	shell:
+		"""
+		bash {BBTOOLS}repair.sh \
+			in={input} \
+			out={output.r1} \
+			out2={output.r2} \
+			outs={output.singletons} \
+			fixinterleaving=f \
+			repair=t \
+			overwrite=t \
+			{XMX}
+		"""
+
+rule reformat_to_interleaved:
+	"""
+	Interleave paired files
+	"""
+	input:
+		r1 = os.path.join("results", "Repaired", "{sample}_repaired_R1.fastq"),
+		r2 = os.path.join("results", "Repaired", "{sample}_repaired_R2.fastq")
+	output:
+		os.path.join("results", "Repaired", "{sample}_interleaved.fasta")
+	shell:
+		"""
+		bash {BBTOOLS}reformat.sh \
+			in={input.r1} \
+			in2={input.r2} \
+			out={outout} \
+			overwrite=t \
+			{XMX}
+		"""
+
+rule idba_assembly:
+	"""
+	Run IDBA assembly
+	"""
+	input:
+		os.path.join("results", "Repaired", "{sample}_interleaved.fasta")
+	params:
+		os.path.join("results", "Assemblies", "{sample}")
+	output:
+		os.path.join("results", "Assemblies", "{sample}", "log")
+	threads: 16
+	shell:
+		"""
+		{IDBA}
+		idba_ud \
+			-r {input} \
+			--out {params} \
+			--mink 20 \
+			--maxk 124 \
+			--pre_correction \
+			--min_contig 300 \
+			--num_threads {threads}
+		"""
+
