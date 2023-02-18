@@ -1,8 +1,8 @@
 ---
 Paths:
-  Reads: /scratch/mtblab/rachel/R21_DA_Phage_EED/bbtools_approach/test_data
+  Reads: /scratch/mtblab/rachel/joint_EE_phage_R21/Environmental_Enteropathy_Viral_RdAB/archived
   Contaminants: /ref/lhlab/data/bbtools_databases/contaminants
-  Host: /ref/lhlab/data/human_g1k/
+  Host: /ref/lhlab/data/bbtools_databases/human_g1k/
 
 Tools:
   BBTools: /ref/mtblab/software/bbmap_38.96/bbmap/

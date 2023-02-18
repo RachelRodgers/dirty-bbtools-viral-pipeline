@@ -5,6 +5,7 @@ configfile: "./config/bbtools_pipeline_config.yml"
 
 # Tools
 BBTOOLS = config["Tools"]["BBTools"]
+IDBA = config["Tools"]["IDBA"]
 
 # Databases
 CONPATH = config["Paths"]["Contaminants"]
@@ -236,7 +237,7 @@ rule reformat_to_interleaved:
 		bash {BBTOOLS}reformat.sh \
 			in={input.r1} \
 			in2={input.r2} \
-			out={outout} \
+			out={output} \
 			overwrite=t \
 			{XMX}
 		"""
@@ -254,8 +255,7 @@ rule idba_assembly:
 	threads: 16
 	shell:
 		"""
-		{IDBA}
-		idba_ud \
+		{IDBA}idba_ud \
 			-r {input} \
 			--out {params} \
 			--mink 20 \
