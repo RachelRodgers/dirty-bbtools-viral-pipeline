@@ -31,7 +31,7 @@ rule all:
 	input:
 		#expand(os.path.join("results", "Assemblies", "{sample}", "log"), sample = SAMPLES)
 		#expand(os.path.join("results", "BlastX_Out", "{sample}.blastx"), sample = SAMPLES)
-		expand(os.path.join("results", "RMA_files", "{sample}.rma"), sample = SAMPLES)
+		expand(os.path.join("results", "RMA_files_No_Assembly", "{sample}.rma"), sample = SAMPLES)
 		
 #----- Rules -----#
 
