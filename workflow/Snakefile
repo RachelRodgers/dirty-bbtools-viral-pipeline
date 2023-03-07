@@ -257,46 +257,22 @@ rule reformat_to_interleaved:
 			{XMX}
 		"""
 
-rule idba_assembly:
-	"""
-	Run IDBA assembly
-	"""
-	input:
-		os.path.join("results", "Repaired", "{sample}_interleaved.fasta")
-	params:
-		os.path.join("results", "Assemblies", "{sample}")
-	output:
-		os.path.join("results", "Assemblies", "{sample}", "log")
-	threads: 16
-	shell:
-		"""
-		{IDBA}idba_ud \
-			-r {input} \
-			--out {params} \
-			--mink 20 \
-			--maxk 124 \
-			--pre_correction \
-			--min_contig 300 \
-			--num_threads {threads}
-		"""
-
 rule run_blastX:
 	"""
 	Query IDBA UD assembled contigs against viroDB.
 	"""
 	input: 
-		os.path.join("results", "Assemblies", "{sample}", "log")
+		os.path.join("results", "Repaired", "{sample}_interleaved.fasta")
 	params:
-		query = os.path.join("results", "Assemblies", "{sample}", "contig.fa"),
 		queryDB = BLASTXDB 
 	output:
-		os.path.join("results", "BlastX_Out", "{sample}.blastx")
+		os.path.join("results", "BlastX_Out_No_Assembly", "{sample}.blastx")
 	threads: 8
 	shell:
 		"""
 		{BLAST}
 		blastx \
-			-query {params.query} \
+			-query {input} \
 			-db {params.queryDB} \
 			-evalue 1e-3 \
 			-out {output} \
@@ -308,10 +284,10 @@ rule blast2rma:
 	Compute MEGAN RMA (read-match archive) files from blastX results.
 	"""
 	input:
-		blastX = os.path.join("results", "BlastX_Out", "{sample}.blastx"),
+		blastX = os.path.join("results", "BlastX_Out_No_Assembly", "{sample}.blastx"),
 		fasta = os.path.join("results", "Repaired", "{sample}_interleaved.fasta")
 	output:
-		os.path.join("results", "RMA_files", "{sample}.rma")
+		os.path.join("results", "RMA_files_No_Assembly", "{sample}.rma")
 	
 	resources:
 		mem_mb = 9000
@@ -329,7 +305,6 @@ rule blast2rma:
 			-top 10 \
 			-supp 0 \
 			-mrc 0 \
-			-v \
-			-lg true
+			-v
 		"""
 			
