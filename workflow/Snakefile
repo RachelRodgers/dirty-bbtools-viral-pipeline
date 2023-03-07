@@ -6,10 +6,13 @@ configfile: "./config/bbtools_pipeline_config.yml"
 # Tools
 BBTOOLS = config["Tools"]["BBTools"]
 IDBA = config["Tools"]["IDBA"]
+BLAST = config["Tools"]["BLAST"]
+MEGAN = config["Tools"]["MEGAN"]
 
 # Databases
 CONPATH = config["Paths"]["Contaminants"]
 HOSTPATH = config["Paths"]["Host"]
+BLASTXDB = config["Paths"]["BlastX"]
 
 # Data paths
 READDIR = config["Paths"]["Reads"]
@@ -26,7 +29,9 @@ PATTERN_R2 = "{sample}_R2"
 #----- Rules -----#
 rule all:
 	input:
-		expand(os.path.join("results", "Assemblies", "{sample}", "log"), sample = SAMPLES)
+		#expand(os.path.join("results", "Assemblies", "{sample}", "log"), sample = SAMPLES)
+		#expand(os.path.join("results", "BlastX_Out", "{sample}.blastx"), sample = SAMPLES)
+		expand(os.path.join("results", "RMA_files", "{sample}.rma"), sample = SAMPLES)
 		
 #----- Rules -----#
 
@@ -45,7 +50,8 @@ rule adapter_removal:
 	threads: 16
 	shell:
 		"""
-		bash {BBTOOLS}bbduk.sh \
+		{BBTOOLS}
+		bbduk.sh \
 			in={input.r1} \
 			in2={input.r2} \
 			ref={input.adapters} \
@@ -82,7 +88,8 @@ rule primerB_removal:
 	threads: 16
 	shell:
 		"""
-		bash {BBTOOLS}bbduk.sh \
+		{BBTOOLS}
+		bbduk.sh \
 			in={input.r1} \
 			in2={input.r2} \
 			ref={input.primerB} \
@@ -115,7 +122,8 @@ rule phiX_removal:
 	threads: 16
 	shell:
 		"""
-		bash {BBTOOLS}bbduk.sh \
+		{BBTOOLS}
+		bbduk.sh \
 			in={input.r1} \
 			in2={input.r2} \
 			ref={input.phix} \
@@ -139,9 +147,12 @@ rule host_removal:
 		unmapped = os.path.join("results", "QC", "{sample}_hostRemoved.fastq"),
 		mapped = os.path.join("results", "QC", "{sample}_hostMatched.fastq")
 	threads: 16
+	resources:
+		mem_mb=48000
 	shell:
 		"""
-		bash {BBTOOLS}bbmap.sh \
+		{BBTOOLS}
+		bbmap.sh \
 			in={input.r1} \
 			in2={input.r2} \
 			path={input.host} \
@@ -170,7 +181,8 @@ rule deduplication:
 	threads: 16
 	shell:
 		"""
-		bash {BBTOOLS}dedupe.sh \
+		{BBTOOLS}
+		dedupe.sh \
 			in={input.unmapped} \
 			out={output.deduplicated} \
 			outd={output.duplicates} \
@@ -191,7 +203,8 @@ rule set_minlength:
 	threads: 16
 	shell:
 		"""
-		bash {BBTOOLS}bbduk.sh \
+		{BBTOOLS}
+		bbduk.sh \
 			in={input} \
 			out={output} \
 			minlength=75 \
@@ -212,7 +225,8 @@ rule repair:
 		singletons = os.path.join("results", "Repaired", "{sample}_repaired_singletons.fastq")
 	shell:
 		"""
-		bash {BBTOOLS}repair.sh \
+		{BBTOOLS}
+		repair.sh \
 			in={input} \
 			out={output.r1} \
 			out2={output.r2} \
@@ -234,7 +248,8 @@ rule reformat_to_interleaved:
 		os.path.join("results", "Repaired", "{sample}_interleaved.fasta")
 	shell:
 		"""
-		bash {BBTOOLS}reformat.sh \
+		{BBTOOLS}
+		reformat.sh \
 			in={input.r1} \
 			in2={input.r2} \
 			out={output} \
@@ -265,3 +280,56 @@ rule idba_assembly:
 			--num_threads {threads}
 		"""
 
+rule run_blastX:
+	"""
+	Query IDBA UD assembled contigs against viroDB.
+	"""
+	input: 
+		os.path.join("results", "Assemblies", "{sample}", "log")
+	params:
+		query = os.path.join("results", "Assemblies", "{sample}", "contig.fa"),
+		queryDB = BLASTXDB 
+	output:
+		os.path.join("results", "BlastX_Out", "{sample}.blastx")
+	threads: 8
+	shell:
+		"""
+		{BLAST}
+		blastx \
+			-query {params.query} \
+			-db {params.queryDB} \
+			-evalue 1e-3 \
+			-out {output} \
+			-num_threads {threads}
+		"""
+
+rule blast2rma:
+	"""
+	Compute MEGAN RMA (read-match archive) files from blastX results.
+	"""
+	input:
+		blastX = os.path.join("results", "BlastX_Out", "{sample}.blastx"),
+		fasta = os.path.join("results", "Repaired", "{sample}_interleaved.fasta")
+	output:
+		os.path.join("results", "RMA_files", "{sample}.rma")
+	
+	resources:
+		mem_mb = 9000
+	shell:
+		"""
+		bash {MEGAN}blast2rma \
+			-i {input.blastX} \
+			-f BlastText \
+			-bm BlastX \
+			-o {output} \
+			-r {input.fasta} \
+			-ms 40 \
+			-me 0.001 \
+			-mpi 0 \
+			-top 10 \
+			-supp 0 \
+			-mrc 0 \
+			-v \
+			-lg true
+		"""
+			
